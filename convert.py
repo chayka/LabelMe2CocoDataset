@@ -133,13 +133,16 @@ for file in iglob(INPUT_DIR + '{}/*.json'.format(args.dataset)):
                 segment.append(x)
                 segment.append(y)
 
+            bbox = get_bbox(shape['points'])
+            [_, _, width, height] = bbox
             """ Add annotations """
             annotation_obj = {
                 'id': annId,
                 'image_id': imageId,
                 'category_id': category['id'],
                 'segmentation': [segment],
-                'bbox': get_bbox(shape['points']),
+                'bbox': bbox,
+                'area': width * height,
                 'iscrowd': 0,
             }
 
