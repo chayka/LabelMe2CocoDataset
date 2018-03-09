@@ -6,19 +6,43 @@ import re
 import base64
 from shutil import rmtree
 from PIL import Image
+import argparse
+from numpy import random
 
-DATA_DIR = "./data/"
-IMAGES_DIR = DATA_DIR + "solar_panels/"
-ANNOTATIONS_DIR = DATA_DIR + "annotations/"
+parser = argparse.ArgumentParser(description='Convert set of labelme files to cocodataset format')
+
+parser.add_argument('dataset', metavar='DATASET_NAME', type=str,
+                    help='dataset (folder) name')
+
+parser.add_argument('-v, --val-ratio', dest='validation_ratio', type=float,
+                    help='validation ration', default=0.2)
+
+args = parser.parse_args()
+
+# print(args)
+# exit()
+
+INPUT_DIR = "./input/"
+OUTPUT_DIR = "./output/"
+DATASET_DIR = OUTPUT_DIR + "{}/".format(args.dataset)
+ANNOTATIONS_DIR = DATASET_DIR + "annotations/"
 
 
 def empty_dir(path):
+    """ empty specified dir """
     if os.path.exists(path):
         rmtree(path)
     os.mkdir(path)
 
 
+def ensure_dir(path):
+    """ empty specified dir """
+    if not os.path.exists(path):
+        os.mkdir(path)
+
+
 def get_bbox(coords):
+    """ get bounding box in format [tlx, tly, w, h] """
     min_x = None
     min_y = None
     max_x = None
@@ -40,46 +64,57 @@ imageId = 0
 annId = 0
 categoryId = 0
 
-empty_dir(IMAGES_DIR)
-empty_dir(ANNOTATIONS_DIR)
+ensure_dir(INPUT_DIR)
+ensure_dir(OUTPUT_DIR)
+empty_dir(DATASET_DIR)
+ensure_dir(DATASET_DIR + "val")
+ensure_dir(DATASET_DIR + "train")
+ensure_dir(ANNOTATIONS_DIR)
 
-images = []
-annotations = []
+images_train = []
+images_val = []
+annotations_train = []
+annotations_val = []
 categories = {}
+
 """ Browse through all marked json files """
-for file in iglob(DATA_DIR + '*.json'):
+for file in iglob(INPUT_DIR + '{}/*.json'.format(args.dataset)):
     imageId += 1
     with open(file, 'r') as f:
 
         """ Load json files """
         data = json.load(f)
 
+        """ Separation of train/validation subsets """
+        subset = "val" if random.random() < args.validation_ratio else "train"
+
         """ Save image file """
-        file_name = "{}{:08d}.jpg".format(IMAGES_DIR, imageId)
+        file_name = "{}{}/{:08d}.jpg".format(DATASET_DIR, subset, imageId)
         print(file_name, file)
-        if not os.path.isfile(file_name):
-            imageData = base64.b64decode(data["imageData"])
-            with open(file_name, 'wb') as fi:
-                fi.write(imageData)
+        image_data = base64.b64decode(data["imageData"])
+        with open(file_name, 'wb') as fi:
+            fi.write(image_data)
+
         """ Get image width x height """
         im = Image.open(file_name)
         (width, height) = im.size
 
         """ Save image data to index """
-        images.append({
+        image_obj = {
             'id': imageId,
             'file_name': "{:08d}.jpg".format(imageId),
             'width': width,
             'height': height,
-        })
+        }
 
-        # del data["imageData"]
-        # print(data)
+        if subset == "val":
+            images_val.append(image_obj)
+        else:
+            images_train.append(image_obj)
 
         """ Process each shape (annotation) """
         for shape in data['shapes']:
             annId += 1
-            # print(shape)
             cat = shape['label']
 
             """ Build category index """
@@ -99,20 +134,32 @@ for file in iglob(DATA_DIR + '*.json'):
                 segment.append(y)
 
             """ Add annotations """
-            annotations.append({
+            annotation_obj = {
                 'id': annId,
                 'image_id': imageId,
                 'category_id': category['id'],
                 'segmentation': [segment],
                 'bbox': get_bbox(shape['points']),
                 'iscrowd': 0,
-            })
+            }
 
-output = {
-    'images': images,
-    'annotations': annotations,
-    'categories': list(categories.values())
-}
+            if subset == "val":
+                annotations_val.append(annotation_obj)
+            else:
+                annotations_train.append(annotation_obj)
 
-with open(ANNOTATIONS_DIR + 'instances_solar_panels.json', 'w') as fa:
-    json.dump(output, fa, indent='  ')
+
+with open(ANNOTATIONS_DIR + 'instances_{}_val.json'.format(args.dataset), 'w') as fa:
+    json.dump({
+        'images': images_val,
+        'annotations': annotations_val,
+        'categories': list(categories.values())
+    }, fa, indent='  ')
+
+with open(ANNOTATIONS_DIR + 'instances_{}_train.json'.format(args.dataset), 'w') as fa:
+    json.dump({
+        'images': images_train,
+        'annotations': annotations_train,
+        'categories': list(categories.values())
+    }, fa, indent='  ')
+
